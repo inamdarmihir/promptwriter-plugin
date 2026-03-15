@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "prompt-guidance"
+version = "0.1.0"
+description = "AI-powered prompt rewriting tool — local LLMs or cloud APIs + Qdrant RAG"
+requires-python = ">=3.11"
+dependencies = [
+    # CLI
+    "typer[all]>=0.12.0",
+    "rich>=13.0.0",
+    # Config
+    "pydantic-settings>=2.0.0",
+    "python-dotenv>=1.0.0",
+    # LLM providers (all optional at runtime — only install what you need)
+    "ollama>=0.3.3",
+    "openai>=1.40.0",
+    "anthropic>=0.34.0",
+    "mistralai>=1.0.0",
+    # Embeddings
+    "sentence-transformers>=3.0.0",
+    # Vector store
+    "qdrant-client>=1.10.0",
+    # File ingestion
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",       # Excel
+    "pymupdf>=1.24.0",        # PDF
+    "python-docx>=1.1.0",     # DOCX
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0", "ruff>=0.5.0"]
+
+[project.scripts]
+pgt = "prompt_guidance.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/prompt_guidance"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
