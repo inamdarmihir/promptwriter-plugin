@@ -1,6 +1,22 @@
-# Prompt Guidance Tool
+<div align="center">
 
-AI-powered prompt rewriting CLI that turns weak prompts into high-performing ones using **Qdrant RAG**, a **RLHF feedback loop**, and **Context Engineering** — works with any local or cloud LLM.
+# ✨ Prompt Guidance Tool
+
+**AI-powered prompt rewriting CLI that turns weak prompts into high-performing ones.**
+
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![Qdrant](https://img.shields.io/badge/Qdrant-Vector%20DB-DC244C?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0xMiAyTDIgN2wxMCA1IDEwLTV6TTIgMTdsOSA1IDktNXYtNWwtOSA1LTktNXoiLz48L3N2Zz4=&logoColor=white)](https://qdrant.tech/)
+[![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM-000000?style=flat-square&logo=ollama&logoColor=white)](https://ollama.com/)
+[![OpenAI](https://img.shields.io/badge/OpenAI-Compatible-412991?style=flat-square&logo=openai&logoColor=white)](https://openai.com/)
+[![Anthropic](https://img.shields.io/badge/Anthropic-Claude-D97757?style=flat-square&logo=anthropic&logoColor=white)](https://www.anthropic.com/)
+[![Docker](https://img.shields.io/badge/Docker-Qdrant-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
+[![License](https://img.shields.io/badge/License-MIT-6366f1?style=flat-square)](LICENSE)
+
+<br/>
+
+*Powered by **Qdrant RAG**, a **RLHF feedback loop**, and **Context Engineering** — works with any local or cloud LLM.*
+
+</div>
 
 ---
 
@@ -9,15 +25,15 @@ AI-powered prompt rewriting CLI that turns weak prompts into high-performing one
 ```
 Your prompt
   ↓
-[Classify]       Detect type, domain, weaknesses, complexity
+[Classify]        Detect type, domain, weaknesses, complexity
   ↓
 [Multi-query RAG] 3 targeted Qdrant searches from different angles
   ↓
-[RLHF Lookup]    Inject high-rated past rewrites as few-shot examples
+[RLHF Lookup]     Inject high-rated past rewrites as few-shot examples
   ↓
 [Budget Allocate] Pick the right amount of context for the complexity
   ↓
-[LLM Rewrite]    Structured rewriting policy → 7-section output
+[LLM Rewrite]     Structured rewriting policy → 7-section output
   ↓
 Enhanced prompt + analysis + what changed + confidence score
 ```
@@ -28,14 +44,16 @@ The tool **learns over time** — every rewrite you rate gets stored and used as
 
 ## Features
 
-- **Multi-provider LLMs** — Ollama (local), OpenAI, Anthropic/Claude, Mistral
-- **Multi-provider embeddings** — Ollama, OpenAI, Sentence Transformers (fully local)
-- **Qdrant vector store** — knowledge base + RLHF preference store, both in Qdrant
-- **Context Engineering** — prompt classification + multi-query RAG fusion + budget-aware context assembly
-- **RLHF feedback loop** — rate rewrites → stored as few-shot examples → future rewrites improve automatically
-- **Multi-format ingestion** — Excel, CSV, PDF, TXT, Markdown, JSON, JSONL, DOCX
-- **Strict rewriting policy** — never changes intent, always explains every change, output is always a complete ready-to-use prompt
-- **Rich CLI** — colour-coded side-by-side diff, source attribution, confidence score, alternative versions
+| Feature | Description |
+|---|---|
+| 🤖 **Multi-provider LLMs** | Ollama (local), OpenAI, Anthropic/Claude, Mistral |
+| 🔢 **Multi-provider embeddings** | Ollama, OpenAI, Sentence Transformers (fully local) |
+| 🗄️ **Qdrant vector store** | Knowledge base + RLHF preference store, both in Qdrant |
+| 🧠 **Context Engineering** | Prompt classification + multi-query RAG fusion + budget-aware context assembly |
+| 🔁 **RLHF feedback loop** | Rate rewrites → stored as few-shot examples → future rewrites improve automatically |
+| 📄 **Multi-format ingestion** | Excel, CSV, PDF, TXT, Markdown, JSON, JSONL, DOCX |
+| 🛡️ **Strict rewriting policy** | Never changes intent, always explains every change, output is always a complete ready-to-use prompt |
+| 🎨 **Rich CLI** | Colour-coded side-by-side diff, source attribution, confidence score, alternative versions |
 
 ---
 
@@ -143,7 +161,7 @@ pgt search "chain of thought reasoning" --top-k 8
 pgt status
 ```
 
-Shows Qdrant connectivity, total chunks, ingested sources, available Ollama models.
+Shows Qdrant connectivity, total chunks, ingested sources, and available Ollama models.
 
 ### `pgt interactive` — REPL mode
 
@@ -266,6 +284,7 @@ class HTMLIngestor:
 ### Add a new vector store
 
 Implement the four methods used by `RAGPipeline` and `IngestPipeline`:
+
 - `initialize()` · `upsert(chunks)` · `search(vector, top_k)` · `delete_by_source(source)`
 
 ---
@@ -300,6 +319,18 @@ Ingest your own documents to build a domain-specific knowledge base.
 
 ## Requirements
 
-- Python ≥ 3.11
-- Docker (for Qdrant) or [Qdrant Cloud](https://cloud.qdrant.io)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![Docker](https://img.shields.io/badge/Docker-Required-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
+[![Qdrant](https://img.shields.io/badge/Qdrant-Cloud%20or%20Local-DC244C?style=flat-square)](https://qdrant.tech/)
+
+- **Python ≥ 3.11**
+- **Docker** (for Qdrant) or [Qdrant Cloud](https://cloud.qdrant.io)
 - At least one of: Ollama running locally, or an API key for OpenAI / Anthropic / Mistral
+
+---
+
+<div align="center">
+
+Built with ❤️ using [Qdrant](https://qdrant.tech/) · [Ollama](https://ollama.com/) · [Anthropic Claude](https://www.anthropic.com/) · [Pydantic](https://docs.pydantic.dev/)
+
+</div>
