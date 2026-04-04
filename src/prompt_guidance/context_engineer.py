@@ -24,7 +24,6 @@ import json
 from dataclasses import dataclass, field
 from typing import Optional
 
-from prompt_guidance.config import settings
 from prompt_guidance.feedback import FeedbackRecord, FeedbackStore
 from prompt_guidance.llm import BaseLLM
 from prompt_guidance.pipeline import RAGPipeline
@@ -65,6 +64,9 @@ class PromptClassification:
     target_model: Optional[str] = None
     main_weaknesses: list[str] = field(default_factory=list)
     retrieval_queries: list[str] = field(default_factory=list)
+    # Populated post-rewrite by DriftDetector when a system prompt is modified.
+    drift_risk: Optional[str] = None        # "none" | "low" | "medium" | "high" | "critical"
+    drift_affected_queries: int = 0         # number of queries that shifted beyond threshold
 
     @classmethod
     def from_json(cls, raw: str) -> "PromptClassification":
@@ -89,6 +91,10 @@ class PromptClassification:
             parts.append(f"target={self.target_model}")
         if self.main_weaknesses:
             parts.append(f"issues=[{', '.join(self.main_weaknesses)}]")
+        if self.drift_risk and self.drift_risk != "none":
+            parts.append(
+                f"drift_risk={self.drift_risk} ({self.drift_affected_queries} queries affected)"
+            )
         return "  ".join(parts)
 
 
@@ -249,6 +255,23 @@ class ContextEngineer:
             rlhf_block = self.feedback_store.format_as_few_shot(rlhf_examples)
             if rlhf_block:
                 sections.append(rlhf_block)
+
+        # 4d. Drift risk warning — injected into context so the rewriter
+        #     knows to be conservative when drift severity is high/critical.
+        if (
+            classification.drift_risk
+            and classification.drift_risk not in ("none", None)
+            and classification.drift_affected_queries > 0
+        ):
+            severity = classification.drift_risk.upper()
+            n = classification.drift_affected_queries
+            sections.append(
+                f"## DRIFT RISK ALERT\n"
+                f"Severity: {severity}\n"
+                f"This prompt modification affects {n} historical user quer{'y' if n == 1 else 'ies'}.\n"
+                f"When rewriting, preserve alignment for the affected query types "
+                f"and avoid narrowing the prompt's scope."
+            )
 
         return "\n\n" + "\n\n---\n\n".join(sections) + "\n"
 

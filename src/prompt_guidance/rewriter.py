@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from prompt_guidance.context_engineer import ContextEngineer, PromptClassification
+from prompt_guidance.drift_detector import DriftDetector, DriftReport, is_system_prompt
 from prompt_guidance.feedback import FeedbackRecord, FeedbackStore
 from prompt_guidance.llm import BaseLLM, get_llm
 from prompt_guidance.pipeline import RAGPipeline
@@ -131,6 +132,7 @@ class RewriteResult:
     classification: Optional[PromptClassification] = None
     sources: list[Chunk] = field(default_factory=list)
     rlhf_examples: list[FeedbackRecord] = field(default_factory=list)
+    drift_report: Optional[DriftReport] = None
     raw_response: str = ""
     session_id: str = field(default_factory=lambda: __import__("uuid").uuid4().hex[:8])
 
@@ -161,6 +163,8 @@ class PromptRewriter:
         context: Optional[str] = None,
         framework: Optional[str] = None,
         top_k: Optional[int] = None,
+        user_queries: Optional[list[str]] = None,
+        drift_threshold: float = 0.15,
     ) -> RewriteResult:
         # ── 1. Context Engineering ────────────────────────────────
         context_str, classification, chunks, rlhf_examples = (
@@ -186,6 +190,33 @@ class PromptRewriter:
 
         # ── 4. Parse ──────────────────────────────────────────────
         result = self._parse(prompt, raw, chunks, rlhf_examples, classification)
+
+        # ── 5. Drift Detection ────────────────────────────────────
+        # Run automatically when the input looks like a system prompt and the
+        # enhanced prompt differs from the original. This tells the user which
+        # historical queries would be affected by the change.
+        if is_system_prompt(prompt) and result.enhanced_prompt and result.enhanced_prompt != prompt:
+            try:
+                detector = DriftDetector(self.rag.embeddings)
+                drift_report = detector.analyze(
+                    old_prompt=prompt,
+                    new_prompt=result.enhanced_prompt,
+                    user_queries=user_queries,
+                    threshold=drift_threshold,
+                )
+                result.drift_report = drift_report
+                # Propagate drift risk back to the classification questionnaire
+                # so the severity is surfaced in summary() and future context builds.
+                if result.classification is not None:
+                    result.classification.drift_risk = drift_report.severity
+                    result.classification.drift_affected_queries = len(drift_report.regressions)
+                    if drift_report.severity in ("high", "critical"):
+                        if "high_drift_risk" not in result.classification.main_weaknesses:
+                            result.classification.main_weaknesses.append("high_drift_risk")
+            except Exception:
+                # Drift detection is non-critical; never fail the rewrite.
+                pass
+
         return result
 
     # ── Feedback ─────────────────────────────────────────────────

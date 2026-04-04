@@ -42,6 +42,69 @@ console = Console()
 # Display helpers
 # ─────────────────────────────────────────────────────────────────
 
+def _show_drift_report(report) -> None:  # type: ignore[annotation-unchecked]
+    """Render a DriftReport as Rich panels."""
+    from rich.markup import escape
+
+    severity_colours = {
+        "none": "green", "low": "green", "medium": "yellow",
+        "high": "red", "critical": "bold red",
+    }
+    colour = severity_colours.get(report.severity, "white")
+
+    console.print()
+    console.print(Rule(f"[{colour}]DRIFT DETECTION REPORT — {report.severity.upper()}[/{colour}]", style=colour))
+    console.print(Panel(escape(report.summary), title="[cyan]Summary[/cyan]", border_style="cyan"))
+
+    if report.regressions:
+        tbl = Table(title="Regressed Queries (shift beyond threshold)", border_style="red")
+        tbl.add_column("Query", style="white")
+        tbl.add_column("Sim Old", justify="right", style="dim")
+        tbl.add_column("Sim New", justify="right", style="dim")
+        tbl.add_column("Shift", justify="right", style="red")
+        tbl.add_column("Risk", style="red")
+        for r in report.regressions:
+            tbl.add_row(
+                r.query[:60],
+                f"{r.sim_old:.3f}",
+                f"{r.sim_new:.3f}",
+                f"{r.shift:+.3f}",
+                r.risk_level.upper(),
+            )
+        console.print(tbl)
+
+    if report.improvements:
+        tbl = Table(title="Improved Queries (shift beyond threshold)", border_style="green")
+        tbl.add_column("Query", style="white")
+        tbl.add_column("Sim Old", justify="right", style="dim")
+        tbl.add_column("Sim New", justify="right", style="dim")
+        tbl.add_column("Shift", justify="right", style="green")
+        for r in report.improvements:
+            tbl.add_row(r.query[:60], f"{r.sim_old:.3f}", f"{r.sim_new:.3f}", f"{r.shift:+.3f}")
+        console.print(tbl)
+
+    if report.questionnaire_impact:
+        lines = []
+        for category, queries in report.questionnaire_impact.items():
+            lines.append(f"  [yellow]{category}[/yellow]: {len(queries)} quer{'y' if len(queries) == 1 else 'ies'}")
+            for q in queries[:3]:
+                lines.append(f"    • {escape(q[:70])}")
+        console.print(
+            Panel(
+                "\n".join(lines),
+                title="[yellow]Questionnaire Impact (affected categories)[/yellow]",
+                border_style="yellow",
+            )
+        )
+
+    console.print(
+        f"[dim]Queries tested:[/dim] {report.total_queries}  "
+        f"[dim]Threshold:[/dim] {report.threshold}  "
+        f"[dim]Regression rate:[/dim] {report.regression_rate:.0%}  "
+        f"[dim]Improvement rate:[/dim] {report.improvement_rate:.0%}"
+    )
+
+
 def _show_result(result, show_sources: bool = False) -> None:  # type: ignore[annotation-unchecked]
     console.print()
     console.print(Rule("[bold cyan]PROMPT GUIDANCE RESULT[/bold cyan]", style="cyan"))
@@ -89,6 +152,9 @@ def _show_result(result, show_sources: bool = False) -> None:  # type: ignore[an
         console.print(
             Panel(result.alternatives, title="[dim]Alternative Versions[/dim]", border_style="dim")
         )
+
+    if result.drift_report is not None:
+        _show_drift_report(result.drift_report)
 
     if show_sources and result.sources:
         tbl = Table(title="Knowledge Base Sources", border_style="blue")
@@ -171,6 +237,15 @@ def enhance(
     top_k: int = typer.Option(5, "--top-k", "-k"),
     show_sources: bool = typer.Option(False, "--sources", "-s", help="Show retrieved knowledge excerpts"),
     collection: Optional[str] = typer.Option(None, "--collection"),
+    queries_file: Optional[Path] = typer.Option(
+        None, "--queries-file", "-q",
+        help="Path to a plain-text file of historical user queries (one per line) "
+             "used for drift detection when enhancing a system prompt.",
+    ),
+    drift_threshold: float = typer.Option(
+        0.15, "--drift-threshold",
+        help="Min cosine-similarity shift to flag a query as drifted (default 0.15).",
+    ),
 ) -> None:
     """[bold]Rewrite a prompt[/bold] using RAG-powered guidance."""
     from prompt_guidance.embeddings import get_embeddings
@@ -209,8 +284,25 @@ def enhance(
 
     rewriter = PromptRewriter(llm=llm, rag=rag, feedback_store=fb_store)
 
+    # Load historical queries for drift detection (if provided)
+    historical_queries: Optional[list[str]] = None
+    if queries_file is not None:
+        try:
+            lines = queries_file.read_text(encoding="utf-8").splitlines()
+            historical_queries = [ln.strip() for ln in lines if ln.strip()]
+            console.print(f"[dim]Loaded {len(historical_queries)} queries from {queries_file.name}[/dim]")
+        except OSError as exc:
+            console.print(f"[yellow]Warning:[/yellow] Could not read queries file: {exc}")
+
     try:
-        result = rewriter.rewrite(prompt, context=context, framework=framework, top_k=top_k)
+        result = rewriter.rewrite(
+            prompt,
+            context=context,
+            framework=framework,
+            top_k=top_k,
+            user_queries=historical_queries,
+            drift_threshold=drift_threshold,
+        )
         _show_result(result, show_sources=show_sources)
 
         # Show classification and session ID for feedback
@@ -470,6 +562,97 @@ def feedback_stats(
         bar = "█" * count
         tbl.add_row(f"{'★' * star}", f"{count:3d}  {bar}")
     console.print(tbl)
+
+
+# ─────────────────────────────────────────────────────────────────
+# detect-drift  (standalone drift analysis between two prompts)
+# ─────────────────────────────────────────────────────────────────
+
+@app.command("detect-drift")
+def detect_drift(
+    old_prompt: Optional[str] = typer.Option(
+        None, "--old", "-o",
+        help="Original system/context prompt (or pipe via stdin)",
+    ),
+    new_prompt: str = typer.Option(
+        ..., "--new", "-n",
+        help="Modified/enhanced prompt to compare against the original",
+    ),
+    queries_file: Optional[Path] = typer.Option(
+        None, "--queries-file", "-q",
+        help="Plain-text file of historical user queries (one per line). "
+             "Uses built-in sample queries when omitted.",
+    ),
+    embed_provider: Optional[str] = typer.Option(
+        None, "--embed-provider", "-e",
+        help="Embedding provider: ollama | openai | sentence-transformers",
+    ),
+    threshold: float = typer.Option(
+        0.15, "--threshold", "-t",
+        help="Min cosine-similarity shift to flag a query (default 0.15).",
+    ),
+) -> None:
+    """
+    [bold]Detect semantic drift[/bold] between two versions of a system prompt.
+
+    Compares how historical user queries align with the old vs new prompt
+    and reports regressions, improvements, and questionnaire impact.
+
+    Examples:
+
+      pgt detect-drift --old "You are a general assistant." \\
+                       --new "You are a coding assistant. Only answer technical questions."
+
+      pgt detect-drift --old "..." --new "..." --queries-file my_queries.txt
+    """
+    from prompt_guidance.drift_detector import DriftDetector
+    from prompt_guidance.embeddings import get_embeddings
+
+    # Accept old_prompt from stdin when not passed via option
+    if old_prompt is None:
+        if not sys.stdin.isatty():
+            old_prompt = sys.stdin.read().strip()
+        else:
+            old_prompt = typer.prompt("Old prompt")
+
+    if not old_prompt or not old_prompt.strip():
+        console.print("[red]Error:[/red] Old prompt cannot be empty.")
+        raise typer.Exit(1)
+
+    if not new_prompt.strip():
+        console.print("[red]Error:[/red] New prompt cannot be empty.")
+        raise typer.Exit(1)
+
+    # Load user queries
+    user_queries: Optional[list[str]] = None
+    if queries_file is not None:
+        try:
+            lines = queries_file.read_text(encoding="utf-8").splitlines()
+            user_queries = [ln.strip() for ln in lines if ln.strip()]
+            console.print(f"[dim]Using {len(user_queries)} queries from {queries_file.name}[/dim]")
+        except OSError as exc:
+            console.print(f"[yellow]Warning:[/yellow] Could not read queries file: {exc}")
+    else:
+        from prompt_guidance.drift_detector import SAMPLE_QUERIES
+        console.print(f"[dim]Using {len(SAMPLE_QUERIES)} built-in sample queries[/dim]")
+
+    try:
+        emb = get_embeddings(provider=embed_provider)
+        detector = DriftDetector(emb)
+        report = detector.analyze(
+            old_prompt=old_prompt,
+            new_prompt=new_prompt,
+            user_queries=user_queries,
+            threshold=threshold,
+        )
+        _show_drift_report(report)
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        console.print("[yellow]Hints:[/yellow]")
+        console.print("  • Ollama running?   ollama serve")
+        console.print("  • OpenAI key set?   export OPENAI_API_KEY=...")
+        console.print("  • Use local models? export EMBED_PROVIDER=sentence-transformers")
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":
